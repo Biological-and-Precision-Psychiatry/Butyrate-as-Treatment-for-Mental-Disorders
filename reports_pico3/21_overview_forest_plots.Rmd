@@ -1,0 +1,150 @@
+---
+title: "PICO 3: Overview Forest Plots for Meta Analysis"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(grid)
+library(ggplot2)
+library(data.table)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+```{r}
+d <- readRDS("data_derived/pico3_1.rds")
+d3 <- readRDS("data_derived/pico3_3.rds")
+d4 <- readRDS("data_derived/pico3_4.rds")
+```
+
+```{r plot_function}
+mk_plot <- function(meta_obj, width=12, height=10, res=100, 
+                    save_fig = interactive(), fig_path="figures/test01.png", ...) {
+  if(save_fig) png(fig_path, width=width, height=height, unit="in", res=res)
+  forest(meta_obj, 
+         digits.sd = 2, 
+         digits.mean = 2, 
+         xlim=c(-2, 2),
+         print.subgroup.name = FALSE,
+         overall = FALSE, 
+         overall.hetstat = FALSE,
+         common = FALSE,
+         random = FALSE,
+         resid.hetstat = FALSE,
+         test.overall.common = FALSE,
+         test.overall.random = FALSE,
+         test.subgroup = FALSE,
+         test.effect.subgroup.fixed = FALSE, 
+         test.effect.subgroup.random = FALSE)
+         
+  if(save_fig) dev.off()
+  invisible(NULL)
+}
+```
+
+
+## Display original data 
+
+```{r, results='hide', warning=FALSE}
+meta01 <- metacont(n.e       = n.e, 
+                   mean.e    = m.e, 
+                   sd.e      = sd.e, 
+                   n.c       = n.c, 
+                   mean.c    = m.c, 
+                   sd.c      = sd.c, 
+                   studlab   = paste0(author, " ", year, ", ", outcome), 
+                   subgroup  = outcome.cat,
+                   data      = d,
+                   sm        = "SMD") 
+```
+
+Display all original data:
+
+```{r ow_forestplot01_eot, fig.width=15, fig.height=107}
+mk_plot(meta01, width=15, height=107)
+```
+
+
+## Display imputed data 
+
+Display data after conversion of SEM to SD and imputation of missing means and SDs, but before combination of intervention arms in multi-arm studies:
+
+```{r, warning=FALSE}
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year, ", ", outcome), 
+                   subgroup = outcome.cat,
+                   data     = d3,
+                   sm       = "SMD") 
+```
+
+```{r ow_forestplot02_eot, fig.width=15, fig.height=107}
+mk_plot(meta01, width=15, height=107)
+```
+
+
+## Display imputed and combined data / Final analytic data
+
+Display the final analytic data after conversion of SEM to SD, imputation of missing means and SDs, and combination of intervention arms in multi-arm studies. Each combined comparison contains complete intervention and control data, allowing all included outcomes to be represented in the forest plot:
+
+```{r, warning=FALSE}
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year, ", ", outcome), 
+                   subgroup = outcome.cat,
+                   data     = d4,
+                   sm       = "SMD") 
+```
+
+```{r ow_forestplot03_eot, fig.width=15, fig.height=90}
+mk_plot(meta01, width=15, height=90)
+```
+
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+

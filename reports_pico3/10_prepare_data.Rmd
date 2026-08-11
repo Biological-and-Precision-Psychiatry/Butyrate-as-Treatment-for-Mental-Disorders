@@ -1,0 +1,363 @@
+---
+title: "PICO 3: Prepare Data for Meta Analysis"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+## Create folders if missing:
+root_dir <- knitr::opts_knit$get("root.dir")
+figs_dir <- paste0(root_dir, "/figures")
+results_dir <- paste0(root_dir, "/results")
+data_derived_dir <- paste0(root_dir, "/data_derived")
+if(!dir.exists(figs_dir))  dir.create(figs_dir)
+if(!dir.exists(results_dir)) dir.create(results_dir)
+if(!dir.exists(data_derived_dir)) dir.create(data_derived_dir)
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(readxl)
+library(data.table)
+library(writexl)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+Check existence of file with raw data:
+```{r}
+RAWDATA <- "data_raw/raw_data_butyrate_meta_analysis.xlsx"
+stopifnot(file.exists(RAWDATA))
+```
+
+Preliminary reading of data treating only empty cells as `NA` (cells containing "NA" are _not_ treated as `NA`):
+```{r, results='hide'}
+## Reading data doesn't work of the file is open in desktop application. Opening it in the 
+## browser application works fine, though.
+d0 <- quick_read_excel(RAWDATA, na = c(""), sheet="PICO 3", guess_max = 1e4)
+setDT(d0)
+## Preview dataset (only shown in interactive sessions):
+dim(d0)
+str(d0)
+head(d0)
+tail(d0)
+```
+
+
+### Check for expected columns (=variables) in dataset
+
+```{r}
+expected_col_names <- 
+  c("include", "outcome.cat", "outcome.sub.cat", "outcome", "direction", 
+    "o.units", "author", "year", "model.cat", "model.spec", "intervention.type", 
+    "dosis", "i.units", "duration", "followup", "control", "n.e", "m.e","sd.e", 
+    "sem.e", "med.e", "q1.e", "q3.e", "combine", "n.c", "m.c", "sd.c", "sem.c", 
+    "med.c", "q1.c", "q3.c","analysis.designation", "extraction.source", "notes")
+
+if(!all(expected_col_names %in% names(d0))) {
+  missing_var <- setdiff(expected_col_names, names(d0))
+  stop("Required variables in data not available: ", paste(missing_var, collapse = ", "))
+}
+if(length(new_variables <- setdiff(names(d0), expected_col_names))) 
+  warning("New variables detected in data: ", paste(new_variables, collapse = ", "))
+```
+
+
+### Check for empty cells in dataset 
+
+We require no missing cells in the dataset.
+
+```{r}
+## Only read read columns until free-text columns (notes/comments):
+max_col <- min(grep("notes|Notes|comment|Comment", names(d0))) - 1
+d <- d0[, 1:max_col]
+
+# Columns in which to ignore missing cells:
+col_ignore <- character(0L)
+stopifnot(all(col_ignore %in% names(d)))
+
+## Identify cells with missing values:
+x <- sapply(d[, -col_ignore, with = FALSE], function(x) sum(is.na(x)))
+x <- x[x > 0]
+
+if(length(x) > 0) {
+  # Get list of places with empty cells:
+  nm <- names(x)
+  message("Missing cells in the following columns (row numbers):")
+  print(lapply(setNames(nm, nm), function(n) which(is.na(d0[, get(n)]))+1) )
+  warning("Missing cells are not allowed!")
+}
+```
+
+### Check for "return/newline" line endings in data
+
+```{r}
+# Find which columns contain \r (and/or \r\n):
+cols <- d[, lapply(.SD, function(x) any(grepl("\r", x, fixed = TRUE))), .SDcols = is.character] |>
+  unlist() |> which() |> names()
+if(length(cols) > 0) {
+  message("Cells containing 'return/newline' in the following columns (row numbers):")
+  print(lapply(d[, .SD, .SDcols = cols], function(x) 
+    which(grepl("\r", x, fixed = TRUE)) + 1))
+  stop("Fix data before proceeding!")
+}
+```
+
+## Read and check data
+
+Read the data treating `NA` as missing:
+```{r, results='hide'}
+# Read file again including only real data-rows:
+d0 <- quick_read_excel(RAWDATA, na = c("", "NA"), guess_max = 1e4,
+                       sheet="PICO 3") 
+setDT(d0)
+d <- d0[, 1:max_col][, -col_ignore, with = FALSE]
+dim(d)
+head(d)
+tail(d)
+str(d, list.len=1e3)
+```
+
+Prepend a row id column:
+```{r}
+d[, row_id := 1:.N]
+setcolorder(d, "row_id")
+```
+
+
+### Check that all data columns are numeric 
+
+Data columns end in `.e` or `.c`:
+```{r}
+nm <- names(d)
+data_cols <- nm[grep("\\.e$|\\.c$", nm)]
+not_is_numeric <- names(which(!sapply(d[, ..data_cols], is.numeric)))
+## Coerce non-numeric data-variables to numeric:
+for(nam in not_is_numeric) { # nam <- not_is_numeric[1]
+  tmp <- d[, get(nam)]
+  tmp_num <- suppressWarnings(as.numeric(tmp))
+  if(sum(is.na(tmp_num)) > sum(is.na(tmp))) 
+    warning("NAs introduced when coercing '", nam, "' to numeric")
+  d[, (nam) := as.numeric(get(nam))]
+}
+```
+
+
+### Tabulate non-numeric variables 
+
+```{r}
+nms <- nm[!sapply(d, is.numeric)]
+tables <- lapply(setNames(nms, nms), function(col) {
+  totpct(d[, .N, by=col][order(-N)])
+})
+write_xlsx(tables, path="results/PICO3_categorical_variable_tables.xlsx")
+```
+
+
+### Check consistency in reporting of mean/median/sd/se
+
+Check that if mean/median is reported in the experimental group, it is also reported in the control group. This only applies to non-combine groups.
+```{r}
+tmp <- d[is.na(combine)]
+stopifnot(tmp[is.na(m.e) & !is.na(m.c) | !is.na(m.e) & is.na(m.c), .N == 0], # *
+  tmp[is.na(sd.e) & !is.na(sd.c) | !is.na(sd.e) & is.na(sd.c), .N == 0],
+  tmp[is.na(sem.e) & !is.na(sem.c) | !is.na(sem.e) & is.na(sem.c), .N == 0] # *
+)
+```
+
+
+### Check consistency of quartile variables
+Check that `q1` and `q3` are either both reported or both missing, and that reported medians lie between the first and third quartiles. 
+```{r} 
+stopifnot(
+  ## Check Q1 and Q3 data:
+  d[(is.na(q1.e) & !is.na(q3.e)) |  (!is.na(q1.e) & is.na(q3.e)), .N == 0],
+  d[(is.na(q1.c) & !is.na(q3.c)) |  (!is.na(q1.c) & is.na(q3.c)), .N == 0])
+```
+
+Check that $q_1 < \mathrm{median} < q_3$ where they are non-missing. Perform similar checks for min, max, lower CI and upper CI values:
+```{r} 
+stopifnot(
+  ## Check Q1 and Q3 data:
+  d[!is.na(q1.e) & !is.na(med.e), all(q1.e <= med.e & med.e <= q3.e)],
+  d[!is.na(q1.c) & !is.na(med.c), all(q1.c <= med.c & med.c <= q3.c)])
+```
+
+
+## Format data
+
+Make copy of data with formatting applied:
+```{r}
+d2 <- copy(d)
+```
+
+
+### Compute SD from SEM
+
+The relation between standard error (SE), standard deviation (SD) and sample size (n) is given by:
+$$SE = SD / \sqrt{n}$$
+
+
+```{r}
+## End-Of-Trial:
+##  Experimental group:
+d2[is.na(sd.e) & !is.na(sem.e), 
+  sd.e := sem.e * sqrt(n.e)]
+##  Control group:
+d2[is.na(sd.c) & !is.na(sem.c), 
+  sd.c := sem.c * sqrt(n.c)]
+
+# Remove 'sem'-variables:
+d2[, `:=`(sem.e = NULL,
+          sem.c = NULL)]
+```
+
+
+### Impute mean and SD where missing from percentile data
+
+Copy mean to median when sd is absent and only mean is present. This is to estimate SD using the median + range method in this case (approximating median with mean):
+```{r} 
+d2[is.na(sd.e) & is.na(med.e) & !is.na(m.e), med.e := m.e]
+d2[is.na(sd.c) & is.na(med.c) & !is.na(m.c), med.c := m.c]
+```
+
+Do the actual imputation of mean+SD using the `metacont` function from package **meta**:
+```{r, warning=FALSE}
+d2[, do_impute := fifelse(is.na(m.e) | is.na(sd.e), 1.0, 0.0)]
+
+# Impute missing means and SDs:
+meta01 <- metacont(
+  # Experimental group:
+  n.e      = n.e, 
+  mean.e   = m.e, 
+  sd.e     = sd.e, 
+  median.e = med.e, 
+  q1.e     = q1.e, 
+  q3.e     = q3.e,
+
+  # Control group:
+  n.c      = n.c, 
+  mean.c   = m.c, 
+  sd.c     = sd.c, 
+  median.c = med.c, 
+  q1.c     = q1.c, 
+  q3.c     = q3.c,
+
+  # Others arguments:
+  studlab  = row_id,
+  data     = d2, 
+  sm       = "SMD") 
+
+## Extract data:
+d2b <- with(meta01, data.table(studlab, n.e, mean.e, sd.e,
+                          n.c, mean.c, sd.c))
+setnames(d2b, function(z) gsub("mean", "m", z, fixed = TRUE))
+```
+
+Merge imputed data into a completed dataset:
+```{r}
+## Merge non-numeric columns with data-columns:
+nm2 <- names(d2)
+data_cols <- nm2[grep("\\.e$|\\.c$", nm2)]
+d3 <- merge(d2[, -data_cols, with=FALSE], d2b,
+            by.x="row_id", by.y="studlab", sort = FALSE)
+stopifnot(length(grep("\\.x$|\\.y$", names(d3))) == 0,
+          nrow(d2) == nrow(d3))
+```
+
+
+## Collapse control groups
+
+First identify rows of data that needs combining, then loop over unique `combine` values and separately combine values in experimental and control groups. Lastly, merge combine data with data rows that did not need combining to achieve a final complete dataset:
+```{r}
+## Split data into section that do not and that do needs combining:
+d3a <- d3[is.na(combine)]
+d3b <- d3[!is.na(combine)]
+
+## Collapse relevant values:
+combine_values <- d3b[, unique(combine)]
+d3c <- lapply(combine_values, function(cv) { 
+  dd <- d3b[combine == cv]
+  res <- dd[!is.na(n.c) & !is.na(n.e)][1]
+  # Each combine identifier must produce exactly one analytic comparison:
+  stopifnot(nrow(res) == 1)
+  
+  ## Collapse experimental groups:
+  dde <- dd[!is.na(n.e)]
+  missings <- sum(!complete.cases(dde[, .(n.e, m.e, sd.e)]))
+  if(nrow(dde) > 1 & missings == 0) {
+   res.e <- dde[, collapse_groups(ns = n.e, m.e, sd.e)]
+    res[, `:=`(n.e      = res.e["n"],
+               m.e  = res.e["mu"],
+               sd.e = res.e["sd"])]
+  }
+  
+  ## Collapse control groups for multi-arm studies:
+  ddc <- dd[!is.na(n.c)]
+  missings <- sum(!complete.cases(ddc[, .(n.c, m.c, sd.c)]))
+  if(nrow(ddc) > 1 & missings == 0) {
+    res.c <- ddc[, collapse_groups(ns = n.c, m.c, sd.c)]
+    res[, `:=`(n.c      = res.c["n"],
+               m.c  = res.c["mu"],
+               sd.c = res.c["sd"])]
+  }
+  res
+}) |> rbindlist()
+## Verify that each combine identifier produced one analytic comparison: 
+stopifnot(nrow(d3c) == length(combine_values))
+
+## Merge section that did not need combining with combine section:
+d4 <- rbind(d3a, d3c)[order(row_id)]
+```
+
+
+## Save data to disk
+
+Datasets:
+
+- `d`:  Original dataset (validated)
+- `d2`: Data with SD imputed from SEM (and CI)
+- `d3`: Data with mean and SD imputed from percentile data where otherwise unavailable
+- `d4`: Data where data sections are combined
+
+Preview `d4`. Note that we only keep N, mean, and SD (for EOT & baseline, and for experimental and control groups):
+```{r}
+d4
+```
+
+Save data files:
+```{r}
+saveRDS(d, "data_derived/pico3_1.rds")
+saveRDS(d2, "data_derived/pico3_2.rds")
+saveRDS(d3, "data_derived/pico3_3.rds")
+saveRDS(d4, "data_derived/pico3_4.rds")
+```
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+

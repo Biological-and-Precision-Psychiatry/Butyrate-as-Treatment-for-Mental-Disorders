@@ -1,0 +1,509 @@
+---
+title: "PICO 3: Leave One Out Influence Analyses -- Pico 3"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup0, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.retina = 4, dev = c('png', 'pdf'))
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(grid)
+library(ggplot2)
+library(data.table)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+```{r}
+d4 <- readRDS("data_derived/pico3_4.rds")
+
+d5 <- d4[outcome.cat == "behavioral" & include == 1]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+d5[, studlab := paste0(author, " ", year), by = .I]
+setorder(d5, -year)
+```
+
+
+```{r}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = studlab,
+                     subgroup = outcome.sub.cat,
+                     data     = d5,
+                     sm       = "SMD") 
+d5$SMD <- meta_obj$TE
+d6 <- d5[abs(SMD) < 2]
+```
+
+
+```{r}
+# Add * to study-label for duplicated studies:
+d6[, studlab := paste0(author, " ", year), by = .I]
+d6[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d6[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+
+d6[, outcome_abbrev := abbreviate(outcome, minlength = 10)]
+d6[, model.cat_abbrev := abbreviate(model.cat, minlength = 5)]
+```
+
+Outcome sub-categories with more than 1 study:
+```{r}
+tab <- d6[, .N, outcome.sub.cat][N > 1][order(-N)]
+uni_cats <- tab[, outcome.sub.cat] 
+tab 
+```
+
+
+### Define function
+
+```{r function_mk_leave1out}
+mk_leave1out <- function(data, width=12, height=10, res=100, 
+                         save_fig = interactive(), fig_path="figures/test01.png") {
+  pdata <- copy(data)
+
+  meta01 <- metacont(n.e     = n.e, 
+                     mean.e  = m.e * direction, 
+                     sd.e    = sd.e, 
+                     n.c     = n.c, 
+                     mean.c  = m.c * direction, 
+                     sd.c    = sd.c, 
+                     studlab = paste0(studlab, studlab_star, "; ", 
+                                      outcome_abbrev, "; ", model.cat_abbrev), 
+                     data    = pdata, 
+                     sm      = "SMD")
+  
+  if(save_fig) png(fig_path, width=width, height=height, unit="in", res=res)
+  forest(metainf(meta01, pooled = "random"))
+  if(save_fig) dev.off()
+}
+```
+
+
+## Leave-one-out analyses - Behavioral (|SMD| < 2) - All data
+
+```{r, eval=FALSE}
+print_code <- function(n) {
+  stopifnot(n >= 1)
+  for(i in 1:n) {
+    cat("\n### `r uni_cats[", i, "]`\n\n", 
+        "```{r leave1out_", i, ", fig.width=9, fig.height=3}\n", 
+        "plotdata <- d6[outcome.sub.cat == uni_cats[", i, "]]\n",
+        "mk_leave1out", "(plotdata, width = 9, height = 3)\n",
+        "```\n", sep="")
+  }
+}
+
+print_code(length(uni_cats))
+```
+
+### `r uni_cats[1]`
+
+```{r leave1out_1, fig.width=11, fig.height=11}
+plotdata <- d6[outcome.sub.cat == uni_cats[1]]
+mk_leave1out(plotdata, width = 11, height = 11)
+```
+
+### `r uni_cats[2]`
+
+```{r leave1out_2, fig.width=11, fig.height=10.5}
+plotdata <- d6[outcome.sub.cat == uni_cats[2]]
+mk_leave1out(plotdata, width = 11, height = 10.5)
+```
+
+### `r uni_cats[3]`
+
+```{r leave1out_3, fig.width=11, fig.height=9}
+plotdata <- d6[outcome.sub.cat == uni_cats[3]]
+mk_leave1out(plotdata, width = 11, height = 9)
+```
+
+### `r uni_cats[4]`
+
+```{r leave1out_4, fig.width=11, fig.height=8}
+plotdata <- d6[outcome.sub.cat == uni_cats[4]]
+mk_leave1out(plotdata, width = 11, height = 8)
+```
+
+### `r uni_cats[5]`
+
+```{r leave1out_5, fig.width=11, fig.height=6}
+plotdata <- d6[outcome.sub.cat == uni_cats[5]]
+mk_leave1out(plotdata, width = 11, height = 6)
+```
+
+### `r uni_cats[6]`
+
+```{r leave1out_6, fig.width=11, fig.height=4}
+plotdata <- d6[outcome.sub.cat == uni_cats[6]]
+mk_leave1out(plotdata, width = 11, height = 4)
+```
+
+### `r uni_cats[7]`
+
+```{r leave1out_7, fig.width=11, fig.height=3}
+plotdata <- d6[outcome.sub.cat == uni_cats[7]]
+mk_leave1out(plotdata, width = 11, height = 3)
+```
+
+## Leave-one-out analyses - Behavioral (|SMD| < 2) -  Excluding graph extracted data
+
+### Format data
+
+```{r}
+d5 <- d4[outcome.cat == "behavioral" & include == 1 & 
+           extraction.source != "graph_extracted_data"]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+d5[, studlab := paste0(author, " ", year), by = .I]
+setorder(d5, -year)
+```
+
+
+```{r}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = studlab,
+                     subgroup = outcome.sub.cat,
+                     data     = d5,
+                     sm       = "SMD") 
+d5$SMD <- meta_obj$TE
+d6 <- d5[abs(SMD) < 2]
+```
+
+
+```{r}
+# Add * to study-label for duplicated studies:
+d6[, studlab := paste0(author, " ", year), by = .I]
+d6[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d6[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+
+d6[, outcome_abbrev := abbreviate(outcome, minlength = 10)]
+d6[, model.cat_abbrev := abbreviate(model.cat, minlength = 5)]
+```
+
+Outcome sub-categories with more than 1 study:
+```{r}
+tab <- d6[, .N, outcome.sub.cat][N > 1][order(-N)]
+uni_cats <- tab[, outcome.sub.cat] 
+tab 
+```
+
+
+```{r, eval=FALSE}
+
+print_code <- function(n) {
+  stopifnot(n >= 1)
+  for(i in 1:n) {
+    cat("\n### `r uni_cats[", i, "]`\n\n", 
+        "```{r leave1out_", i, "_v2, fig.width=9, fig.height=3}\n", 
+        "plotdata <- d6[outcome.sub.cat == uni_cats[", i, "]]\n",
+        "mk_leave1out", "(plotdata, width = 9, height = 3)\n",
+        "```\n", sep="")
+  }
+}
+
+print_code(length(uni_cats))
+```
+
+### `r uni_cats[1]`
+
+```{r leave1out_1_v2, fig.width=11, fig.height=5}
+plotdata <- d6[outcome.sub.cat == uni_cats[1]]
+mk_leave1out(plotdata, width = 11, height = 5)
+```
+
+### `r uni_cats[2]`
+
+```{r leave1out_2_v2, fig.width=11, fig.height=4}
+plotdata <- d6[outcome.sub.cat == uni_cats[2]]
+mk_leave1out(plotdata, width = 11, height = 4)
+```
+
+### `r uni_cats[3]`
+
+```{r leave1out_3_v2, fig.width=11, fig.height=4}
+plotdata <- d6[outcome.sub.cat == uni_cats[3]]
+mk_leave1out(plotdata, width = 11, height = 4)
+```
+
+### `r uni_cats[4]`
+
+```{r leave1out_4_v2, fig.width=11, fig.height=4}
+plotdata <- d6[outcome.sub.cat == uni_cats[4]]
+mk_leave1out(plotdata, width = 11, height = 4)
+```
+
+### `r uni_cats[5]`
+
+```{r leave1out_5_v2, fig.width=11, fig.height=4}
+plotdata <- d6[outcome.sub.cat == uni_cats[5]]
+mk_leave1out(plotdata, width = 11, height = 4)
+```
+
+### `r uni_cats[6]`
+
+```{r leave1out_6_v2, fig.width=11, fig.height=4}
+plotdata <- d6[outcome.sub.cat == uni_cats[6]]
+mk_leave1out(plotdata, width = 11, height = 4)
+```
+
+### `r uni_cats[7]`
+
+```{r leave1out_7_v2, fig.width=11, fig.height=3}
+plotdata <- d6[outcome.sub.cat == uni_cats[7]]
+mk_leave1out(plotdata, width = 11, height = 3)
+```
+
+
+## Leave-one-out analyses - Behavioral - Excluding graph-extracted data (no SMD restriction)
+
+These analyses use behavioral data excluding observations extracted from graphs. No observations are excluded based on the magnitude of the SMD. Each iteration excludes one effect estimate at a time.
+
+### Format data
+
+```{r prepare_leave1out_no_graph_unfiltered}
+d_no_graph_unfiltered <- d4[
+  outcome.cat == "behavioral" &
+    include == 1 &
+    extraction.source != "graph_extracted_data"
+]
+
+d_no_graph_unfiltered[
+  ,
+  grp := .GRP,
+  by = .(
+    author,
+    year,
+    outcome,
+    model.cat,
+    model.spec,
+    intervention.type
+  )
+]
+
+d_no_graph_unfiltered <- d_no_graph_unfiltered[
+  ,
+  .SD[which.min(abs(duration - followup))],
+  by = grp
+]
+
+setorder(d_no_graph_unfiltered, -year)
+```
+
+### Format effect-estimate labels
+
+```{r prepare_leave1out_no_graph_unfiltered_labels}
+d_no_graph_unfiltered[
+  ,
+  studlab := paste0(author, " ", year)
+]
+
+d_no_graph_unfiltered[
+  ,
+  studlab_star := fifelse(.N > 1, "*", ""),
+  by = .(outcome.sub.cat, studlab)
+]
+
+d_no_graph_unfiltered[
+  ,
+  outcome_abbrev := abbreviate(
+    outcome,
+    minlength = 10
+  )
+]
+
+d_no_graph_unfiltered[
+  ,
+  model.cat_abbrev := abbreviate(
+    model.cat,
+    minlength = 5
+  )
+]
+```
+
+Behavioral outcome subcategories represented by more than one effect estimate:
+
+```{r list_leave1out_no_graph_unfiltered_categories}
+tab_no_graph_unfiltered <- d_no_graph_unfiltered[
+  ,
+  .N,
+  by = outcome.sub.cat
+][N > 1][order(-N)]
+
+uni_cats_no_graph_unfiltered <-
+  tab_no_graph_unfiltered$outcome.sub.cat
+
+tab_no_graph_unfiltered
+```
+
+### Leave-one-effect-out plots
+
+```{r leave1out_no_graph_unfiltered, results='asis', fig.width=11, fig.height=8}
+stopifnot(length(uni_cats_no_graph_unfiltered) >= 1)
+
+for (i in seq_along(uni_cats_no_graph_unfiltered)) {
+  current_category <- uni_cats_no_graph_unfiltered[i]
+
+  cat(
+    "\n\n### ",
+    current_category,
+    "\n\n",
+    sep = ""
+  )
+
+  plotdata_no_graph_unfiltered <- d_no_graph_unfiltered[
+    outcome.sub.cat == current_category
+  ]
+
+  mk_leave1out(
+    plotdata_no_graph_unfiltered,
+    width = 11,
+    height = 8,
+    save_fig = FALSE
+  )
+}
+```
+
+## Leave-one-out analyses - Behavioral - All data (no SMD restriction)
+
+These analyses use all included behavioral data. No observations are excluded based on extraction source or the magnitude of the SMD. Each iteration excludes one effect estimate at a time.
+
+### Format data
+
+```{r prepare_leave1out_all_unfiltered}
+d_all_unfiltered <- d4[
+  outcome.cat == "behavioral" &
+    include == 1
+]
+
+d_all_unfiltered[
+  ,
+  grp := .GRP,
+  by = .(
+    author,
+    year,
+    outcome,
+    model.cat,
+    model.spec,
+    intervention.type
+  )
+]
+
+d_all_unfiltered <- d_all_unfiltered[
+  ,
+  .SD[which.min(abs(duration - followup))],
+  by = grp
+]
+
+setorder(d_all_unfiltered, -year)
+```
+
+### Format effect-estimate labels
+
+```{r prepare_leave1out_all_unfiltered_labels}
+d_all_unfiltered[
+  ,
+  studlab := paste0(author, " ", year)
+]
+
+d_all_unfiltered[
+  ,
+  studlab_star := fifelse(.N > 1, "*", ""),
+  by = .(outcome.sub.cat, studlab)
+]
+
+d_all_unfiltered[
+  ,
+  outcome_abbrev := abbreviate(
+    outcome,
+    minlength = 10
+  )
+]
+
+d_all_unfiltered[
+  ,
+  model.cat_abbrev := abbreviate(
+    model.cat,
+    minlength = 5
+  )
+]
+```
+
+Behavioral outcome subcategories represented by more than one effect estimate:
+
+```{r list_leave1out_all_unfiltered_categories}
+tab_all_unfiltered <- d_all_unfiltered[
+  ,
+  .N,
+  by = outcome.sub.cat
+][N > 1][order(-N)]
+
+uni_cats_all_unfiltered <-
+  tab_all_unfiltered$outcome.sub.cat
+
+tab_all_unfiltered
+```
+
+### Leave-one-effect-out plots
+
+```{r leave1out_all_unfiltered, results='asis', fig.width=11, fig.height=8}
+stopifnot(length(uni_cats_all_unfiltered) >= 1)
+
+for (i in seq_along(uni_cats_all_unfiltered)) {
+  current_category <- uni_cats_all_unfiltered[i]
+
+  cat(
+    "\n\n### ",
+    current_category,
+    "\n\n",
+    sep = ""
+  )
+
+  plotdata_all_unfiltered <- d_all_unfiltered[
+    outcome.sub.cat == current_category
+  ]
+
+  mk_leave1out(
+    plotdata_all_unfiltered,
+    width = 11,
+    height = 8,
+    save_fig = FALSE
+  )
+}
+```
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+

@@ -1,0 +1,118 @@
+---
+title: "PICO 3: Render All Reports"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+## Create folders if missing:
+root_dir <- knitr::opts_knit$get("root.dir")
+figs_dir <- paste0(root_dir, "/figures")
+results_dir <- paste0(root_dir, "/results")
+data_derived_dir <- paste0(root_dir, "/data_derived")
+if(!dir.exists(figs_dir))  dir.create(figs_dir)
+if(!dir.exists(results_dir)) dir.create(results_dir)
+if(!dir.exists(data_derived_dir)) dir.create(data_derived_dir)
+
+## Allow duplicate labels:
+options(knitr.duplicate.label = "allow")
+```
+
+
+## Check packages
+
+```{r, message=FALSE}
+stopifnot(
+  requireNamespace("data.table"),
+  requireNamespace("rmarkdown"),
+  requireNamespace("knitr"),
+  requireNamespace("meta"),
+  requireNamespace("readxl"),
+  requireNamespace("writexl"),
+  requireNamespace("varhandle"),
+  requireNamespace("grid"),
+  requireNamespace("ggplot2")
+)
+```
+
+
+## Reports included in the workflow
+
+Make overview of `Rmd` that can be processed (NB: 41_ipd_analyses.Rmd is not included because the underlying IPD raw data are not distributed with the public repository. Processed IPD results used by the analyses are incorporated into the shared raw data file):
+```{r}
+report_files <- c(
+  "10_prepare_data.Rmd",
+  "21_overview_forest_plots.Rmd",
+  "30_manus_forest_plots.Rmd",
+  "32_manus_funnel_plots.Rmd",
+  "35_table_1.Rmd",
+  "36_leave1out.Rmd"
+)
+
+report_paths <- file.path("reports_pico3", report_files)
+
+stopifnot(all(file.exists(report_paths)))
+
+report_files
+```
+
+
+## Process `Rmd` files
+
+For manual processing of the first report:
+```{r, eval=FALSE}
+rmarkdown::render(
+  report_paths[1],
+  envir = new.env()
+)
+```
+
+Render all reports in the specified order:
+```{r}
+for (path in report_paths) {
+  message("Rendering: ", path)
+
+  tryCatch(
+    rmarkdown::render(
+      path,
+      quiet = TRUE,
+      envir = new.env()
+    ),
+    error = function(e) {
+      stop(
+        "Rendering failed for ",
+        path,
+        ":\n",
+        conditionMessage(e),
+        call. = FALSE
+      )
+    }
+  )
+}
+```
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+

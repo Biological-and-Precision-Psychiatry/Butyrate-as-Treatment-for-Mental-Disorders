@@ -1,0 +1,507 @@
+---
+title: "PICO 3: Funnel Plots"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup0, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.retina = 4, dev = c('png', 'pdf'))
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(grid)
+library(ggplot2)
+library(data.table)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+```{r}
+d4 <- readRDS("data_derived/pico3_4.rds")
+
+d5 <- d4[outcome.cat == "behavioral" & include == 1]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+setorder(d5, -year)
+```
+
+
+# All included data
+
+Outcome sub-categories with more than 1 study/one effect estimate (some preclinical studies have different mice cohorts for the same studies, marked with * at the forest plots):
+```{r}
+tab <- d5[, .N, outcome.sub.cat][N > 1][order(-N)]
+uni_cats <- tab[, outcome.sub.cat] 
+tab 
+```
+## Behavioral outcomes
+### Funnel plots & Egger's test
+
+
+```{r funnel_n_function}
+mk_funnelplot <- function(data, placement = "topleft") {
+  pdata <- copy(data)
+
+  meta01 <- metacont(n.e     = n.e, 
+                     mean.e  = m.e * direction, 
+                     sd.e    = sd.e, 
+                     n.c     = n.c, 
+                     mean.c  = m.c * direction, 
+                     sd.c    = sd.c, 
+                     studlab = paste0(author, " ", year), 
+                     data    = pdata, 
+                     sm      = "SMD")
+  
+  cc <- funnel(meta01, random = TRUE, common = FALSE,
+               level = 0.95, contour = c(0.9, 0.95, 0.99))$col.contour
+  legend(placement,legend = c("0.1 > p > 0.05", "0.05 > p > 0.01", "< 0.01"), 
+         fill = cc, bg = "white")
+  if(meta01$k > 9) metabias(meta01, k.min = 9) |> print()
+  invisible(meta01)
+}
+```
+
+```{r, eval=FALSE}
+print_code <- function(n) {
+  stopifnot(n >= 1)
+  for(i in 1:n) {
+    cat("\n### `r uni_cats[", i, "]`\n\n", sep="")
+    cat("```{r funnel_", i, ", fig.width=7, fig.height=7}\n", sep="")
+    cat("plotdata <- d5[outcome.sub.cat == uni_cats[", i, "]]\n", sep="")
+    cat("mk_funnelplot(plotdata)\n")
+    cat("```\n")
+  }
+}
+
+print_code(length(uni_cats))
+
+```
+
+
+### `r uni_cats[1]`
+
+```{r funnel_1, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[1]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[2]`
+
+```{r funnel_2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[2]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[3]`
+
+```{r funnel_3, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[3]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[4]`
+
+```{r funnel_4, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[4]]
+mk_funnelplot(plotdata)
+```
+
+
+### `r uni_cats[5]`
+
+```{r funnel_5, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[5]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[6]`
+
+```{r funnel_6, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[6]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[7]`
+
+```{r funnel_7, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[7]]
+mk_funnelplot(plotdata)
+```
+
+## Biomarker outcomes
+### Funnel plots & Egger's test
+
+```{r}
+d5 <- d4[
+  outcome.cat == "biomarkers" & include == 1 &
+  !is.na(m.e) &
+  !is.na(sd.c) &
+  sd.c > 0
+]
+
+d5[, grp := .GRP, by = .(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by = grp]
+setorder(d5, -year)
+
+d5[, n_studies := .N, keyby=outcome]
+d6 <- d5[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+
+Outcome sub-categories with more than 1 study/effect estimate:
+```{r}
+tab <- d5[, .N, outcome][N > 1][order(-N)]
+uni_cats <- tab[, outcome] 
+tab 
+```
+
+```{r, eval=FALSE}
+print_code <- function(n) {
+  stopifnot(n >= 1)
+  for(i in 1:n) {
+    cat("\n### `r uni_cats[", i, "]`\n\n", sep="")
+    cat("```{r funnel_", i, "biomark , fig.width=7, fig.height=7}\n", sep="")
+    cat("plotdata <- d5[outcome == uni_cats[", i, "]]\n", sep="")
+    cat("mk_funnelplot(plotdata)\n")
+    cat("```\n")
+  }
+}
+
+print_code(length(uni_cats))
+
+```
+
+
+### `r uni_cats[1]`
+
+```{r funnel_1biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[1]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[2]`
+
+```{r funnel_2biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[2]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[3]`
+
+```{r funnel_3biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[3]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[4]`
+
+```{r funnel_4biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[4]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[5]`
+
+```{r funnel_5biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[5]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[6]`
+
+```{r funnel_6biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[6]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[7]`
+
+```{r funnel_7biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[7]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[8]`
+
+```{r funnel_8biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[8]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[9]`
+
+```{r funnel_9biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[9]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[10]`
+
+```{r funnel_10biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[10]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[11]`
+
+```{r funnel_11biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[11]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[12]`
+
+```{r funnel_12biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[12]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[13]`
+
+```{r funnel_13biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[13]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[14]`
+
+```{r funnel_14biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[14]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[15]`
+
+```{r funnel_15biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[15]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[16]`
+
+```{r funnel_16biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[16]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[17]`
+
+```{r funnel_17biomark , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[17]]
+mk_funnelplot(plotdata)
+```
+
+
+# Excluding graph extracted data
+
+```{r}
+d5 <- d4[outcome.cat == "behavioral" & include == 1 & 
+               extraction.source != "graph_extracted_data"]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+setorder(d5, -year)
+```
+
+Outcome sub-categories with more than 1 study:
+```{r}
+tab <- d5[, .N, outcome.sub.cat][N > 1][order(-N)]
+uni_cats <- tab[, outcome.sub.cat] 
+tab 
+```
+
+## Behavioral outcomes
+### Funnel plots & Egger's test
+
+
+```{r, eval=FALSE}
+print_code <- function(n) {
+  stopifnot(n >= 1)
+  for(i in 1:n) {
+    cat("\n### `r uni_cats[", i, "]`\n\n", sep="")
+    cat("```{r funnel_", i, ", fig.width=7, fig.height=7}\n", sep="")
+    cat("plotdata <- d5[outcome.sub.cat == uni_cats[", i, "]]\n", sep="")
+    cat("mk_funnelplot(plotdata)\n")
+    cat("```\n")
+  }
+}
+
+print_code(length(uni_cats))
+
+```
+
+
+### `r uni_cats[1]`
+
+```{r funnel_1_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[1]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[2]`
+
+```{r funnel_2_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[2]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[3]`
+
+```{r funnel_3_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[3]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[4]`
+
+```{r funnel_4_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[4]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[5]`
+
+```{r funnel_5_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[5]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[6]`
+
+```{r funnel_6_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[6]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[7]`
+
+```{r funnel_7_v2, fig.width=7, fig.height=7}
+plotdata <- d5[outcome.sub.cat == uni_cats[7]]
+mk_funnelplot(plotdata)
+```
+
+## Biomarker outcomes
+### Funnel plots & Egger's test
+
+```{r}
+d5 <- d4[
+  outcome.cat == "biomarkers" & include == 1 &
+    extraction.source != "graph_extracted_data" & 
+  !is.na(m.e) &
+  !is.na(sd.c) &
+  sd.c > 0
+]
+
+d5[, grp := .GRP, by = .(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by = grp]
+setorder(d5, -year)
+
+d5[, n_studies := .N, keyby=outcome]
+d6 <- d5[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+
+Outcome sub-categories with more than 1 study:
+```{r}
+tab <- d5[, .N, outcome][N > 1][order(-N)]
+uni_cats <- tab[, outcome] 
+tab 
+```
+
+```{r, eval=FALSE}
+print_code <- function(n) {
+  stopifnot(n >= 1)
+  for(i in 1:n) {
+    cat("\n### `r uni_cats[", i, "]`\n\n", sep="")
+    cat("```{r funnel_", i, "biomark , fig.width=7, fig.height=7}\n", sep="")
+    cat("plotdata <- d5[outcome == uni_cats[", i, "]]\n", sep="")
+    cat("mk_funnelplot(plotdata)\n")
+    cat("```\n")
+  }
+}
+
+print_code(length(uni_cats))
+
+```
+
+
+### `r uni_cats[1]`
+
+```{r funnel_1biomark_v2 , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[1]]
+mk_funnelplot(plotdata)
+```
+
+### `r uni_cats[2]`
+
+```{r funnel_2biomark_v2 , fig.width=7, fig.height=7}
+plotdata <- d5[outcome == uni_cats[2]]
+mk_funnelplot(plotdata)
+```
+
+
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

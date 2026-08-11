@@ -1,0 +1,121 @@
+---
+title: "PICO 2: Render All Reports"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+## Create folders if missing:
+root_dir <- knitr::opts_knit$get("root.dir")
+figs_dir <- paste0(root_dir, "/figures")
+results_dir <- paste0(root_dir, "/results")
+data_derived_dir <- paste0(root_dir, "/data_derived")
+if(!dir.exists(results_dir)) dir.create(results_dir)
+if (!dir.exists(figs_dir)) dir.create(figs_dir)
+if(!dir.exists(data_derived_dir)) dir.create(data_derived_dir)
+
+## Allow duplicate labels:
+options(knitr.duplicate.label = "allow")
+```
+
+
+## Check packages
+
+```{r, message=FALSE}
+stopifnot(
+  requireNamespace("data.table"),
+  requireNamespace("rmarkdown"),
+  requireNamespace("knitr"),
+  requireNamespace("meta"),
+  requireNamespace("readxl"),
+  requireNamespace("writexl"),
+  requireNamespace("varhandle"),
+  requireNamespace("grid"),
+  requireNamespace("ggplot2")
+)
+```
+
+
+## Reports included in the workflow
+
+The reports are rendered in the order specified below.
+
+```{r report_files}
+report_files <- c(
+  "10_prepare_data.Rmd",
+  "21_overview_forest_plots.Rmd",
+  "30_manus_forest_plots.Rmd",
+  "32_manus_funnel_plots.Rmd",
+  "35_table_1.Rmd",
+  "36_leave1out.Rmd"
+)
+
+report_paths <- file.path(
+  "reports_pico2",
+  report_files
+)
+
+missing_reports <- report_paths[!file.exists(report_paths)]
+
+if (length(missing_reports) > 0L) {
+  stop(
+    "The following required reports are missing:\n",
+    paste(missing_reports, collapse = "\n"),
+    call. = FALSE
+  )
+}
+
+report_files
+```
+
+## Render reports
+
+Render all PICO 2 reports in the specified order:
+
+```{r render_reports}
+for (path in report_paths) {
+  message("Rendering: ", path)
+
+  tryCatch(
+    rmarkdown::render(
+      input = path,
+      quiet = TRUE,
+      envir = new.env()
+    ),
+    error = function(e) {
+      stop(
+        "Rendering failed for ",
+        path,
+        ":\n",
+        conditionMessage(e),
+        call. = FALSE
+      )
+    }
+  )
+}
+```
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+

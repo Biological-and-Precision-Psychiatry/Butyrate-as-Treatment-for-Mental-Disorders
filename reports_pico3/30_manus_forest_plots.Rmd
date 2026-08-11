@@ -1,0 +1,301 @@
+---
+title: "PICO 3: Main Forest Plots for Meta Analysis"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup0, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(grid)
+library(ggplot2)
+library(data.table)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+```{r}
+d4 <- readRDS("data_derived/pico3_4.rds")
+```
+
+```{r functions}
+rescale_means <- function(object) {
+  object$mean.e <- abs(object$mean.e)
+  object$mean.c <- abs(object$mean.c)
+  object
+}
+mk_plot <- function(meta_obj, width=12, height=10, res=100, 
+                    save_fig = interactive(), fig_path="figures/test01.png", ...) {
+  if(save_fig) png(fig_path, width=width, height=height, unit="in", res=res)
+  
+  forest(rescale_means(meta_obj), 
+         digits.sd = 1, 
+         digits.mean = 2, 
+         xlim=c(-2, 2), 
+         leftcols = c("studlab", "outcome", "model.cat", "n.e", "mean.e", "sd.e", 
+                      "n.c", "mean.c", "sd.c"),
+         leftlabs = c("Study", "Outcome measure", "Disease model", "Total", 
+                      "Mean", "SD", "Total", "Mean", "SD"),
+         just.addcols.left = "right",
+         rightcols = c("effect", "ci", "w.random"),
+         
+         # Overall/Random/Common effect settings:
+         overall = FALSE,
+         common = FALSE,
+         random = TRUE,
+         overall.hetstat = FALSE,
+         hetstat = TRUE,
+         test.overall.random = FALSE,
+         
+         # Subgroup settings:
+         subgroup = TRUE,
+         print.subgroup.name = FALSE,
+         random.subgroup = TRUE,
+         test.subgroup = FALSE,
+         test.effect.subgroup = TRUE,
+         label.test.effect.subgroup.random = "Test of random effect: ",
+         
+         # Prediction interval settings:
+         prediction = FALSE,
+         prediction.subgroup = TRUE,
+         ...
+
+         )
+  
+  if(save_fig) dev.off()
+  invisible(NULL)
+}
+```
+
+# All data
+
+## Behavioral data
+
+Extract data for the behavioral outcome category. For each combination of study, outcome and disease, select the data row where follow-up is closest to duration of the trial:
+```{r}
+d5 <- d4[outcome.cat == "behavioral" & include == 1]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+setorder(d5, -year)
+
+# Add * to study-label for duplicated studies:
+d5[, studlab := paste0(author, " ", year), by = .I]
+d5[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d5[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+```
+
+
+```{r fig.width=16, fig.height=50}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d5,
+                     sm       = "SMD") 
+mk_plot(meta_obj, colgap.forest.left = "0.5cm",
+       colgap.forest.right = "0.5cm",
+       fontsize = 11, width=16, height=50)
+```
+
+
+## Behavioral data - |SMD| < 2
+
+```{r}
+d5$SMD <- meta_obj$TE
+d6 <- d5[abs(SMD) < 2]
+
+# Add * to study-label for duplicated studies:
+d6[, studlab := paste0(author, " ", year), by = .I]
+d6[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d6[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+```
+
+
+```{r fig.width=16, fig.height=40}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d6,
+                     sm       = "SMD") 
+mk_plot(meta_obj, colgap.forest.left = "0.5cm",
+       colgap.forest.right = "0.5cm",
+       fontsize = 11, width=16, height=40)
+```
+
+
+
+## Behavioral data - |SMD| < 1.6
+
+```{r}
+d6 <- d5[abs(SMD) < 1.6]
+
+# Add * to study-label for duplicated studies:
+d6[, studlab := paste0(author, " ", year), by = .I]
+d6[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d6[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+```
+
+
+```{r fig.width=16, fig.height=36}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d6,
+                     sm       = "SMD") 
+mk_plot(meta_obj, colgap.forest.left = "0.5cm",
+       colgap.forest.right = "0.5cm",
+       fontsize = 11, width=16, height=36)
+```
+
+
+# Excluding graph extracted data - primary behavioral analysis
+
+
+## Behavioral data
+
+Extract data for the behavioral outcome category. For each combination of study, outcome and disease, select the data row where follow-up is closest to duration of the trial:
+```{r}
+d5 <- d4[outcome.cat == "behavioral" & include == 1 & 
+           extraction.source != "graph_extracted_data"]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+setorder(d5, -year)
+
+# Add * to study-label for duplicated studies:
+d5[, studlab := paste0(author, " ", year), by = .I]
+d5[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d5[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+```
+
+
+```{r fig.width=16, fig.height=20}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d5,
+                     sm       = "SMD") 
+mk_plot(meta_obj, colgap.forest.left = "0.5cm",
+       colgap.forest.right = "0.5cm",
+       fontsize = 11, width=16, height=20)
+```
+
+
+## Behavioral data - |SMD| < 2
+
+```{r}
+d5$SMD <- meta_obj$TE
+d6 <- d5[abs(SMD) < 2]
+
+# Add * to study-label for duplicated studies:
+d6[, studlab := paste0(author, " ", year), by = .I]
+d6[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d6[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+```
+
+
+```{r fig.width=16, fig.height=19}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d6,
+                     sm       = "SMD") 
+mk_plot(meta_obj, colgap.forest.left = "0.5cm",
+       colgap.forest.right = "0.5cm",
+       fontsize = 11, width=16, height=19)
+```
+
+
+
+## Behavioral data - |SMD| < 1.6
+
+```{r}
+d6 <- d5[abs(SMD) < 1.6]
+
+# Add * to study-label for duplicated studies:
+d6[, studlab := paste0(author, " ", year), by = .I]
+d6[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d6[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+```
+
+
+```{r fig.width=16, fig.height=16}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d6,
+                     sm       = "SMD") 
+mk_plot(meta_obj, colgap.forest.left = "0.5cm",
+       colgap.forest.right = "0.5cm",
+       fontsize = 11, width=16, height=16)
+```
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

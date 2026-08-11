@@ -1,0 +1,734 @@
+---
+title: "PICO 3: Tables for Meta Analysis"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup0, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+```{r setup, include=FALSE}
+library(data.table)
+library(meta)
+library(grid)
+library(ggplot2)
+```
+
+```{r, setup02, include=FALSE}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+```{r}
+d4 <- readRDS("data_derived/pico3_4.rds")
+```
+
+# All data
+
+## Behavioral
+
+### Table of SMD for each behavioral construct ($k > 1$, ie., all studies)
+
+Extract behavioral outcome data. For each combination of study, outcome, disease model and intervention type, select the row where follow-up is closest to the intervention duration.
+
+```{r}
+d5 <- d4[outcome.cat == "behavioral" & include == 1]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+setorder(d5, -year)
+
+# Add * to study-label for duplicated studies:
+d5[, studlab := paste0(author, " ", year), by = .I]
+d5[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d5[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+
+d5[, n_studies := .N, keyby=outcome.sub.cat]
+d6 <- d5[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome.sub.cat,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome.sub.cat  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome.sub.cat]
+X <- as.data.table(merge(X1, X2, by="outcome.sub.cat"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1_ps, fig.width=9, fig.height=3}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome.sub.cat, data = X) 
+
+if(interactive())
+  png("figures/test02.png", width=9, height=3, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+## Behavioral - |SMD| < 2
+
+### Table of SMD for each behavioral constructs ($k > 1$)
+
+
+
+```{r}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d5,
+                     sm       = "SMD") 
+d5$SMD <- meta_obj$TE
+d6 <- d5[abs(SMD) < 2]
+d6[, n_studies := .N, keyby=outcome.sub.cat]
+d6 <- d6[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome.sub.cat,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome.sub.cat  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome.sub.cat]
+X <- as.data.table(merge(X1, X2, by="outcome.sub.cat"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1_ps_smd2, fig.width=9, fig.height=3}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome.sub.cat, data = X) 
+if(interactive())
+  png("figures/test02.png", width=9, height=3, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+## Biomarkers
+
+### Table of SMD for each  biomarker outcome ($k > 1$)
+
+Extract biomarker outcome data. For each combination of study, outcome, disease model and intervention type, select the row where follow-up is closest to the intervention duration:
+
+```{r}
+d5 <- d4[
+  outcome.cat == "biomarkers" & include == 1 &
+  !is.na(m.e) &
+  !is.na(sd.c) &
+  sd.c > 0
+]
+
+d5[, grp := .GRP, by = .(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by = grp]
+setorder(d5, -year)
+
+d5[, n_studies := .N, keyby=outcome]
+d6 <- d5[n_studies > 1]
+
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome]
+X <- as.data.table(merge(X1, X2, by="outcome"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1_bio, fig.width=9, fig.height=5}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome, data = X) 
+
+if(interactive())
+  png("figures/test02.png", width=9, height=5, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("Outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+### Table of SMD for each  biomarker outcome ($k = 1$)
+
+Select biomarker outcomes represented by a single study or effect estimate ($k = 1$):
+
+```{r}
+d6 <- d5[n_studies == 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome]
+X <- as.data.table(merge(X1, X2, by="outcome"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1b_bio, fig.width=10, fig.height=4}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome, data = X)
+
+if(interactive())
+  png("figures/test02.png", width=10, height=4, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("Outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+### SMD table with all studies (any $k$)
+
+```{r}
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d5, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d5[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome]
+X <- as.data.table(merge(X1, X2, by="outcome"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+X <- X[Studies > 0]
+```
+
+### Forest plot of table 
+
+```{r table_1_suppl_bio, fig.width=10, fig.height=7}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome, data = X)
+
+if(interactive())
+  png("figures/test02.png", width=10, height=7, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+# Excluding graph extracted data
+
+## Behavioral
+
+### SMD table for non-digitized behavioral constructs ($k > 1$)
+
+Extract behavioral non-digitized (cf. extraction.source) outcome data. For each combination of study, outcome, disease model and intervention type, select the row where follow-up is closest to the intervention duration.
+
+```{r}
+d5 <- d4[outcome.cat == "behavioral" & include == 1 & 
+               extraction.source != "graph_extracted_data"]
+d5[, grp := .GRP, by=.(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by=grp]
+setorder(d5, -year)
+
+# Add * to study-label for duplicated studies:
+d5[, studlab := paste0(author, " ", year), by = .I]
+d5[, studlab_n := .N, by = .(outcome.sub.cat, studlab)]
+d5[, studlab_star := fifelse(studlab_n > 1, "*", "")]
+
+d5[, n_studies := .N, keyby=outcome.sub.cat]
+d6 <- d5[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome.sub.cat,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome.sub.cat  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome.sub.cat]
+X <- as.data.table(merge(X1, X2, by="outcome.sub.cat"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1_ps_v2, fig.width=9, fig.height=3}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome.sub.cat, data = X)
+
+if(interactive())
+  png("figures/test02.png", width=9, height=3, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+## Behavioral - |SMD| < 2
+
+### Table of SMD for behavioral non-digitized construct ($k > 1$)
+
+Extract behavioral non-digitized outcome data with |SMD| < 2:
+
+```{r}
+meta_obj <- metacont(n.e      = n.e, 
+                     mean.e   = m.e * direction, 
+                     sd.e     = sd.e, 
+                     n.c      = n.c, 
+                     mean.c   = m.c * direction, 
+                     sd.c     = sd.c, 
+                     studlab  = paste0(studlab, studlab_star),
+                     subgroup = outcome.sub.cat,
+                     data     = d5,
+                     sm       = "SMD") 
+d5$SMD <- meta_obj$TE
+d6 <- d5[abs(SMD) < 2]
+d6[, n_studies := .N, keyby=outcome.sub.cat]
+d6 <- d6[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome.sub.cat,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome.sub.cat  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+# X1
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome.sub.cat]
+X <- as.data.table(merge(X1, X2, by="outcome.sub.cat"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1_ps_smd2_v2, fig.width=9, fig.height=3}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome.sub.cat, data = X) 
+
+if(interactive())
+  png("figures/test02.png", width=9, height=3, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+## Biomarkers
+
+### Table of SMD for each  biomarker outcome ($k > 1$)
+
+Extract data for all non-digitized biomarker outcomes. For each combination of study, outcome and disease, select the data row where follow-up is closest to duration of the trial:
+
+```{r}
+d5 <- d4[
+  outcome.cat == "biomarkers" & include == 1 &
+    extraction.source != "graph_extracted_data" & 
+    !is.na(m.e) &
+    !is.na(sd.c) &
+    sd.c > 0
+]
+
+d5[, grp := .GRP, by = .(author, year, outcome, model.cat, model.spec, intervention.type)]
+d5 <- d5[, .SD[which.min(abs(duration - followup))], by = grp]
+setorder(d5, -year)
+
+d5[, n_studies := .N, keyby=outcome]
+d6 <- d5[n_studies > 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+# X1
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome]
+X <- as.data.table(merge(X1, X2, by="outcome"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1_bio_v2, fig.width=9, fig.height=3}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome, data = X) 
+if(interactive())
+  png("figures/test02.png", width=9, height=3, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("Outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+### Table of SMD for each non-digitized biomarker ($k = 1$)
+
+```{r}
+d6 <- d5[n_studies == 1]
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d6, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+X2 <- d6[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome]
+X <- as.data.table(merge(X1, X2, by="outcome"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+```
+
+### Forest plot of table 
+
+```{r table_1b_bio_v2, fig.width=10, fig.height=4}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome, data = X)
+
+if(interactive())
+  png("figures/test02.png", width=10, height=4, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("Outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+### SMD table with all studies (any $k$)
+
+```{r}
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e * direction, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c * direction, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year), 
+                   subgroup = outcome,
+                   data     = d5, 
+                   sm       = "SMD")
+smeta01 <- summary(meta01)
+```
+
+### Format Table 
+
+```{r}
+X1 <- with(smeta01, data.frame(outcome  = bylevs,
+                               Studies = k.w,
+                               SMD     = smeta01$within.random$TE,
+                               seSMD   = smeta01$within.random$seTE,
+                               lower   = smeta01$within.random$lower,
+                               upper   = smeta01$within.random$upper,
+                               pvalue  = smeta01$within.random$p,
+                               I2      = I2.w))
+# X1
+X2 <- d5[, .(Cases = sum(n.e), Controls=sum(n.c)), by=outcome]
+X <- as.data.table(merge(X1, X2, by="outcome"))
+X[, CI := paste0("(", do_format(lower), 
+                    " - ", do_format(upper), ")")]
+X[, SMD_CI := paste(do_format(SMD), CI)]
+X[, pval := format.pval(round(pvalue, 3), digits=3, eps = 1e-3)]
+X[, I2_pct := format(round(I2*100))]
+setorder(X, -Studies, -Cases)
+X <- X[Studies > 0]
+```
+
+### Forest plot of table 
+
+```{r table_1_suppl_bio_v2, fig.width=10, fig.height=5}
+meta01 <- metagen(TE=SMD, seTE = seSMD, studlab = outcome, data = X) 
+if(interactive())
+  png("figures/test02.png", width=10, height=5, unit="in", res=100)
+forest(meta01, digits.se = 2, digits.mean = 2, xlim=c(-2, 2), digits.pval = 3,
+       overall=FALSE, overall.hetstat = FALSE,
+       leftcols = c("studlab", "Studies", "Cases", "Controls", 
+                    "effect.ci", "pval", "I2_pct"),
+       rightcols = FALSE,
+       leftlabs = c("outcome", "Studies", "Cases", "Controls",
+                    "SMD [95% CI]", "p-value", "I2 %"),
+       smlab = "SMD")
+if(interactive()) dev.off()
+```
+
+
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+

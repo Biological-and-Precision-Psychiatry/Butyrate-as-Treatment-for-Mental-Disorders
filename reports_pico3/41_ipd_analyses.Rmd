@@ -1,0 +1,276 @@
+---
+title: "PICO 3: Individual level raw data analyses"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+## Context
+
+For more than 20 studies in PICO 3, individual-level data were received directly from the study authors. These raw data are not publicly available in this repository.
+
+The individual-level data were analysed separately, and the resulting summary statistics were incorporated into the shared PICO 3 dataset used in the meta-analyses. Consequently, this file cannot be reproduced without access to the original individual-level data, but it is retained in the repository to document the analytical workflow.
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(readxl)
+library(meta)
+library(grid)
+library(ggplot2)
+library(data.table)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+Read data and create ASCII-compatible outcome labels for plotting and abbreviation.
+
+```{r}
+FILE <- "data_ipd/Restructured collection of individual-level data PICO 3.xlsx"
+stopifnot(file.exists(FILE))
+sheets <- excel_sheets(FILE)
+
+# Read all sheets:
+dt <- lapply(sheets, function(sheet) quick_read_excel(FILE, sheet = sheet)) |> 
+  rbindlist(fill = TRUE)
+dt[, study_id := paste(author, year)]
+
+# Convert non-ASCII to ASCII:
+dt[, outcome_orig := outcome]
+dt[, outcome := stringi::stri_enc_toascii(outcome_orig)]
+
+# Abbreviate outcome:
+dt[, outcome_abbrev := as.factor(abbreviate(outcome, minlength = 10))]
+
+# Check that outcome_abbrev is a 1-to-1 mapping of outcome:
+is_1to1 <- function(dt, col1, col2) {
+  dt <- as.data.table(dt)
+  n_pairs <- uniqueN(dt, by = c(col1, col2))
+  n1 <- uniqueN(dt[[col1]])
+  n2 <- uniqueN(dt[[col2]])
+  n_pairs == n1 && n_pairs == n2
+}
+stopifnot(is_1to1(dt, "outcome", "outcome_abbrev"))
+```
+
+
+## Data summaries
+
+Non-ASCII cases of `outcome`:
+```{r}
+dt[outcome != outcome_orig, .N, .(study_id, outcome, outcome_orig)]
+```
+
+Missing values:
+```{r}
+show_na(dt)
+dt[!is.na(model.spec)] |> print(topn = 2)
+dt[, .N, keyby = model.spec] |> totpct()
+```
+
+
+### 1-way tables
+
+```{r}
+dt[, .N, keyby = study_id] |> totpct()
+dt[, .N, keyby = group] |> totpct()
+dt[, .N, keyby = dosis] |> totpct()
+dt[, .(no_studies = uniqueN(study_id), N=.N), keyby = outcome] |> 
+  totpct(n_col = "N")
+```
+
+
+### Dose
+
+```{r}
+ggplot(dt, aes(dosis)) + geom_histogram(bins = 30)
+```
+
+Dose for control group is always zero.
+```{r}
+stopifnot(dt[group == "control", all(dosis == 0)])
+```
+
+Distribution of dose for intervention group:
+```{r}
+ggplot(dt[group != "control"], aes(dosis)) + geom_histogram(bins = 30) + 
+  scale_x_log10() + 
+  facet_wrap(~group)
+```
+
+
+## Outcome value
+
+Numerical summaries:
+```{r}
+dt[, as.list(summary(value)), group]
+```
+
+Cases where value is zero:
+```{r}
+dt[value == 0]
+```
+
+### Illustrations
+
+A histogram simply shows the huge differences in scale:
+```{r}
+ggplot(dt, aes(value)) + geom_histogram(bins = 30)
+```
+
+Excluding cases where `value == 0` the histogram on the log-scale is bimodal:
+```{r}
+ggplot(dt[value > 0], aes(value)) + geom_histogram(bins = 30) + 
+  scale_x_log10()
+```
+
+By study ID we don't see any bell-shaped distributions. 
+```{r, fig.height=10}
+ggplot(dt, aes(value, fill = group)) + geom_histogram(bins = 30) + 
+  theme(legend.position = "bottom") + 
+  facet_wrap(~ study_id, scales = "free_x") + 
+  xlab("")
+```
+
+Some distributions are bimodal indicating different scales for different outcomes:
+```{r, fig.height=10}
+ggplot(dt, aes(value, fill = group)) + geom_histogram(bins = 30) + 
+  theme(legend.position = "bottom") + 
+  facet_wrap(study_id ~ outcome_abbrev, scales = "free_x") + 
+  xlab("")
+```
+
+On the log-scale:
+```{r, fig.height=10}
+ggplot(dt[value > 0], aes(value, fill = group)) + geom_histogram(bins = 30) + 
+  theme(legend.position = "bottom") + 
+  facet_wrap(study_id ~ outcome_abbrev, scales = "free_x") + 
+  scale_x_log10() + 
+  xlab("") + ylab("")
+```
+
+
+## Overview forest plots
+
+Table of N & mean(SD) by study and outcome:
+```{r}
+tab <- dt[, .(n = .N, 
+              m = mean(value), 
+              sd = sd(value)), 
+          keyby = .(author, year, study_id, outcome_abbrev, outcome, group)]
+
+tab <- dcast(tab, study_id + author + year + outcome + outcome_abbrev ~ 
+               group, 
+             value.var = c("n", "m", "sd"))
+setnames(tab, function(nm) gsub("_control", ".c", nm, fixed = TRUE))
+setnames(tab, function(nm) gsub("_intervention", ".e", nm, fixed = TRUE))
+nm <- names(tab)
+tab[, .SD, .SDcols = grep("study_id|outcome_abbrev|\\.e$|\\.c$", nm)] |>
+  print(digits = 3)
+```
+
+```{r, mk_plot_fun, echo=FALSE}
+mk_plot <- function(meta_obj, width=12, height=10, res=100, 
+                    save_fig = interactive(), fig_path="figures/test01.png", ...) {
+  if(save_fig) png(fig_path, width=width, height=height, unit="in", res=res)
+  forest(meta_obj, 
+         digits.sd = 2, 
+         digits.mean = 2, 
+         xlim=c(-2, 2),
+         print.subgroup.name = FALSE,
+         overall = FALSE, 
+         overall.hetstat = FALSE,
+         common = FALSE,
+         random = FALSE,
+         resid.hetstat = FALSE,
+         test.overall.common = FALSE,
+         test.overall.random = FALSE)
+         
+  if(save_fig) dev.off()
+  invisible(NULL)
+}
+```
+
+
+```{r, warning=FALSE}
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(study_id, ", ", outcome_abbrev), 
+                   data     = tab,
+                   sm       = "SMD") 
+```
+
+```{r ow_forestplot01, fig.width=11, fig.height=8}
+mk_plot(meta01, width=11, height=8)
+```
+
+
+## Comparison with supplied summary data
+The supplied study-level summary records corresponding to the available IPD
+are marked `include == 0`, because the IPD-derived summary statistics were
+used in their place. The following plot compares the two sources.
+
+```{r}
+d <- readRDS("data_derived/pico3_1.rds")
+d3 <- readRDS("data_derived/pico3_3.rds")
+d4 <- readRDS("data_derived/pico3_4.rds")
+```
+
+```{r, fig.width=11, fig.height=7}
+d5 <- merge(d4[include == 0], tab[, .(author, year, outcome, outcome_abbrev)],
+            by = c("author", "year", "outcome"))
+
+meta01 <- metacont(n.e      = n.e, 
+                   mean.e   = m.e, 
+                   sd.e     = sd.e, 
+                   n.c      = n.c, 
+                   mean.c   = m.c, 
+                   sd.c     = sd.c, 
+                   studlab  = paste0(author, " ", year, ", ", outcome_abbrev), 
+                   data     = d5,
+                   sm       = "SMD") 
+mk_plot(meta01, width=11, height=9)
+```
+
+
+## Appendix
+
+### Functions
+
+```{r, mk_plot_fun, echo=TRUE}
+```
+
+
+### **R** session info
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+

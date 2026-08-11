@@ -1,0 +1,424 @@
+---
+title: "PICO 2: Prepare Data for Meta Analysis"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+## Create folders if missing:
+root_dir <- knitr::opts_knit$get("root.dir")
+figs_dir <- paste0(root_dir, "/figures")
+results_dir <- paste0(root_dir, "/results")
+data_derived_dir <- paste0(root_dir, "/data_derived")
+if(!dir.exists(figs_dir))  dir.create(figs_dir)
+if(!dir.exists(results_dir)) dir.create(results_dir)
+if(!dir.exists(data_derived_dir)) dir.create(data_derived_dir)
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(readxl)
+library(data.table)
+library(writexl)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+Check existence of file with raw data:
+```{r}
+RAWDATA <- "data_raw/raw_data_butyrate_meta_analysis.xlsx"
+stopifnot(file.exists(RAWDATA))
+```
+
+Preliminary reading of data treating only empty cells as `NA` (cells containing "NA" are _not_ treated as `NA`):
+```{r, results='hide'}
+## readxl may fail if the workbook is open in the desktop Excel application; browser application works fine.
+d0 <- quick_read_excel(RAWDATA, na = c(""), sheet="PICO 2", guess_max = 1e4)
+setDT(d0)
+## Preview/inspect dataset:
+dim(d0)
+str(d0)
+head(d0)
+tail(d0)
+```
+
+
+### Check for expected columns (=variables) in dataset
+
+```{r}
+expected_col_names <- 
+  c("forest.plot", "include", "outcome.cat", "outcome.subcat", "direction", "outcome", 
+    "sample.type", "o.units", "author", 
+    "year", "trialID", "age.group", "population.status", "disease", "intervention.type", 
+    "duration", "followup", "i.dosis", "i.units", "control", "c.dosis", 
+    "c.units", "n.e", "b.event.e", "b.m.e", "b.sd.e", "b.se.e", "b.med.e", 
+    "b.min.e", "b.max.e", "b.q1.e", "b.q3.e", "b.ci.low.e", "b.ci.high.e", 
+    "eot.event.e", "eot.m.e", "eot.sd.e", "eot.se.e", "eot.med.e", 
+    "eot.min.e", "eot.max.e", "eot.q1.e", "eot.q3.e", "eot.ci.low.e", 
+    "eot.ci.high.e", "n.c", "b.event.c", "b.m.c", "b.sd.c", 
+    "b.se.c", "b.med.c", "b.min.c", "b.max.c", "b.q1.c", "b.q3.c", 
+    "b.ci.low.c", "b.ci.high.c", "eot.event.c", "eot.m.c", "eot.sd.c", 
+    "eot.se.c", "eot.med.c", "eot.min.c", "eot.max.c", "eot.q1.c", 
+    "eot.q3.c", "eot.ci.low.c", "eot.ci.high.c", "notes")
+
+if(!all(expected_col_names %in% names(d0))) {
+  missing_var <- setdiff(expected_col_names, names(d0))
+  stop("Required variables in data not available: ", paste(missing_var, collapse = ", "))
+}
+if(length(new_variables <- setdiff(names(d0), expected_col_names))) 
+  warning("New variables detected in data: ", paste(new_variables, collapse = ", "))
+```
+
+
+### Check for empty cells in dataset 
+
+Check for empty cells in analytic columns, excluding `forest.plot` and free-text columns.
+
+```{r}
+## Only read read columns until free-text columns (notes/comments):
+max_col <- min(grep("notes|Notes|comment|Comment", names(d0))) - 1
+d <- d0[, 1:max_col]
+
+## Columns in which to ignore missing cells:
+col_ignore <- "forest.plot"
+stopifnot(all(col_ignore %in% names(d)))
+
+## Identify cells with missing values:
+x <- sapply(d[, -col_ignore, with = FALSE], function(x) sum(is.na(x)))
+x <- x[x > 0]
+
+if(length(x) > 0) {
+  # Get list of places with empty cells:
+  nm <- setdiff(names(x), col_ignore)
+  message("Missing cells in the following columns (row numbers):")
+  print(lapply(setNames(nm, nm), function(n) which(is.na(d0[, get(n)]))+1) )
+  warning("Missing cells are not allowed!")
+}
+```
+
+
+## Read and check data
+
+Read the data treating `NA` as missing:
+```{r, results='hide'}
+# Read file again including only real data-rows:
+d0 <- quick_read_excel(RAWDATA, na = c("", "NA"), guess_max = 1e4,
+                       sheet="PICO 2") 
+                
+setDT(d0)
+d <- d0[, 1:max_col][, -col_ignore, with = FALSE]
+dim(d)
+head(d)
+tail(d)
+str(d, list.len=1e3)
+```
+
+Prepend a row id column:
+```{r}
+d[, row_id := 1:.N]
+setcolorder(d, "row_id")
+```
+
+
+### Check that all data columns are numeric 
+
+Data columns end in `.e` or `.c`:
+```{r}
+nm <- names(d)
+data_cols <- nm[grep("\\.e$|\\.c$", nm)]
+not_is_numeric <- names(which(!sapply(d[, ..data_cols], is.numeric)))
+## Coerce non-numeric data-variables to numeric:
+for(nam in not_is_numeric) { 
+  tmp <- d[, get(nam)]
+  tmp_num <- suppressWarnings(as.numeric(tmp))
+  if(sum(is.na(tmp_num)) > sum(is.na(tmp))) 
+    warning("NAs introduced when coercing '", nam, "' to numeric")
+  d[, (nam) := as.numeric(get(nam))]
+}
+```
+
+
+### Tabulate non-numeric variables 
+
+```{r}
+nms <- nm[!sapply(d, is.numeric)]
+tables <- lapply(setNames(nms, nms), function(col) {
+  totpct(d[, .N, by=col][order(-N)])
+})
+write_xlsx(tables, path="results/PICO2_categorical_variable_tables.xlsx")
+```
+
+
+### Check consistency in reporting of mean/median/sd/se
+
+Check that if mean/median is reported in the experimental group, it is also reported in the control group. 
+```{r}
+tmp <- d
+stopifnot(
+  tmp[is.na(eot.m.e) & !is.na(eot.m.c) | !is.na(eot.m.e) & is.na(eot.m.c), .N == 0],
+  tmp[is.na(b.m.e) & !is.na(b.m.c) | !is.na(b.m.e) & is.na(b.m.c), .N == 0], 
+  
+  tmp[is.na(eot.med.e) & !is.na(eot.med.c) | !is.na(eot.med.e) & is.na(eot.med.c), .N == 0],
+  tmp[is.na(b.med.e) & !is.na(b.med.c) | !is.na(b.med.e) & is.na(b.med.c), .N == 0], 
+  
+  tmp[is.na(eot.sd.e) & !is.na(eot.sd.c) | !is.na(eot.sd.e) & is.na(eot.sd.c), .N == 0],
+  tmp[is.na(b.sd.e) & !is.na(b.sd.c) | !is.na(b.sd.e) & is.na(b.sd.c), .N == 0],
+  
+  tmp[is.na(eot.se.e) & !is.na(eot.se.c) | !is.na(eot.se.e) & is.na(eot.se.c), .N == 0],
+  tmp[is.na(b.se.e) & !is.na(b.se.c) | !is.na(b.se.e) & is.na(b.se.c), .N == 0] 
+)
+
+```
+
+
+### Check consistency of min-max and low-high variables
+
+Check that if `q1` is non-NA, then `q3` is also non-NA and vice versa. Also check min-max and lower-upper confidence limits as well.
+```{r}
+stopifnot(
+  ## Check Q1 and Q3 data:
+  d[(is.na(eot.q1.e) & !is.na(eot.q3.e)) |  (!is.na(eot.q1.e) & is.na(eot.q3.e)), .N == 0],
+  d[(is.na(eot.q1.c) & !is.na(eot.q3.c)) |  (!is.na(eot.q1.c) & is.na(eot.q3.c)), .N == 0],
+  d[(is.na(b.q1.e) & !is.na(b.q3.e)) |  (!is.na(b.q1.e) & is.na(b.q3.e)), .N == 0],
+  d[(is.na(b.q1.c) & !is.na(b.q3.c)) |  (!is.na(b.q1.c) & is.na(b.q3.c)), .N == 0],
+  ## Check CI data:
+  d[(is.na(eot.ci.low.e) & !is.na(eot.ci.high.e)) |  
+      (!is.na(eot.ci.low.e) & is.na(eot.ci.high.e)), .N == 0],
+  d[(is.na(eot.ci.low.c) & !is.na(eot.ci.high.c)) |  
+      (!is.na(eot.ci.low.c) & is.na(eot.ci.high.c)), .N == 0],
+  d[(is.na(b.ci.low.e) & !is.na(b.ci.high.e)) |  
+      (!is.na(b.ci.low.e) & is.na(b.ci.high.e)), .N == 0],
+  d[(is.na(b.ci.low.c) & !is.na(b.ci.high.c)) |  
+      (!is.na(b.ci.low.c) & is.na(b.ci.high.c)), .N == 0],
+  ## Check min-max data:
+  d[(is.na(eot.min.e) & !is.na(eot.max.e)) |  (!is.na(eot.min.e) & is.na(eot.max.e)), .N == 0],
+  d[(is.na(eot.min.c) & !is.na(eot.max.c)) |  (!is.na(eot.min.c) & is.na(eot.max.c)), .N == 0],
+  d[(is.na(b.min.e) & !is.na(b.max.e)) |  (!is.na(b.min.e) & is.na(b.max.e)), .N == 0],
+  d[(is.na(b.min.c) & !is.na(b.max.c)) |  (!is.na(b.min.c) & is.na(b.max.c)), .N == 0])
+```
+
+Check that $q_1 < median < q_3$ where they are non-missing. Perform similar checks for min, max, lower CI and upper CI values:
+```{r}
+stopifnot(
+  ## Check Q1 and Q3 data:
+  d[!is.na(eot.q1.e) & !is.na(eot.med.e), all(eot.q1.e <= eot.med.e & eot.med.e <= eot.q3.e)],
+  d[!is.na(eot.q1.c) & !is.na(eot.med.c), all(eot.q1.c <= eot.med.c & eot.med.c <= eot.q3.c)],
+  d[!is.na(b.q1.e) & !is.na(b.med.e), all(b.q1.e <= b.med.e & b.med.e <= b.q3.e)],
+  d[!is.na(b.q1.c) & !is.na(b.med.c), all(b.q1.c <= b.med.c & b.med.c <= b.q3.c)],
+  ## Check min-max data:
+  d[!is.na(eot.q1.e) & !is.na(eot.min.e), all(eot.min.e < eot.q1.e & eot.q3.e < eot.max.e)],
+  d[!is.na(eot.q1.c) & !is.na(eot.min.c), all(eot.min.c < eot.q1.c & eot.q3.c < eot.max.c)],
+  d[!is.na(b.q1.e) & !is.na(b.min.e), all(b.min.e < b.q1.e & b.q3.e < b.max.e)],
+  d[!is.na(b.q1.c) & !is.na(b.min.c), all(b.min.c < b.q1.c & b.q3.c < b.max.c)],
+  ## Check CI data:
+  d[!is.na(eot.ci.low.e) & !is.na(eot.m.e), all(eot.ci.low.e < eot.m.e & eot.m.e < eot.ci.high.e)],
+  d[!is.na(eot.ci.low.c) & !is.na(eot.m.c), all(eot.ci.low.c < eot.m.c & eot.m.c < eot.ci.high.c)],
+  d[!is.na(b.ci.low.e) & !is.na(b.m.e), all(b.ci.low.e < b.m.e & b.m.e < b.ci.high.e)],
+  d[!is.na(b.ci.low.c) & !is.na(b.m.c), all(b.ci.low.c < b.m.c & b.m.c < b.ci.high.c)])
+```
+
+
+## Format data
+
+Make copy of data with formatting applied:
+```{r}
+d2 <- copy(d)
+```
+
+### Compute SEM from CI
+
+```{r}
+## End-Of-Trial:
+##  Experimental group:
+d2[is.na(eot.sd.e) & is.na(eot.se.e) & !is.na(eot.ci.low.e) & !is.na(eot.ci.high.e), 
+   eot.se.e := ci2se(ci=c(eot.ci.low.e, eot.ci.high.e), n = n.e), 
+   by=row_id]
+## Control group:
+d2[is.na(eot.sd.c) & is.na(eot.se.c) & !is.na(eot.ci.low.c) & !is.na(eot.ci.high.c), 
+   eot.se.c := ci2se(ci=c(eot.ci.low.c, eot.ci.high.c), n = n.c), 
+   by=row_id]
+
+## Baseline:
+##  Experimental group:
+d2[is.na(b.sd.e) & is.na(b.se.e) & !is.na(b.ci.low.e) & !is.na(b.ci.high.e), 
+   b.se.e := ci2se(ci=c(b.ci.low.e, b.ci.high.e), n = n.e), 
+   by=row_id]
+## Control group:
+d2[is.na(b.sd.c) & is.na(b.se.c) & !is.na(b.ci.low.c) & !is.na(b.ci.high.c), 
+   b.se.c := ci2se(ci=c(b.ci.low.c, b.ci.high.c), n = n.c), 
+   by=row_id]
+```
+
+
+
+### Compute SD from SEM
+
+The relation between standard error (SE), standard deviation (SD) and sample size (n) is given by:
+$$SE = SD / \sqrt{n}$$
+
+
+```{r}
+## End-Of-Trial:
+##  Experimental group:
+d2[is.na(eot.sd.e) & !is.na(eot.se.e), 
+  eot.sd.e := eot.se.e * sqrt(n.e)]
+##  Control group:
+d2[is.na(eot.sd.c) & !is.na(eot.se.c), 
+  eot.sd.c := eot.se.c * sqrt(n.c)]
+
+## Baseline:
+##  Experimental group:
+d2[is.na(b.sd.e) & !is.na(b.se.e), 
+  b.sd.e := b.se.e * sqrt(n.e)]
+##  Control group:
+d2[is.na(b.sd.c) & !is.na(b.se.c), 
+  b.sd.c := b.se.c * sqrt(n.c)]
+
+# Remove SE variables after converting available SE values to SD:
+d2[, `:=`(eot.se.e = NULL,
+          eot.se.c = NULL, 
+          b.se.e   = NULL, 
+          b.se.c   = NULL)]
+```
+
+
+### Impute mean and SD where missing from percentile data
+
+Copy mean to median when sd is absent and only mean is present. This is to estimate SD using the median + range method in this case (approximating median with mean):
+```{r}
+d2[is.na(eot.sd.e) & is.na(eot.med.e) & !is.na(eot.m.e), eot.med.e := eot.m.e]
+d2[is.na(eot.sd.c) & is.na(eot.med.c) & !is.na(eot.m.c), eot.med.c := eot.m.c]
+d2[is.na(b.sd.e) & is.na(b.med.e) & !is.na(b.m.e), b.med.e := b.m.e]
+d2[is.na(b.sd.c) & is.na(b.med.c) & !is.na(b.m.c), b.med.c := b.m.c]
+```
+
+Do the actual imputation of mean+SD for EOT and baseline separately using the `metacont` function from package **meta**:
+```{r, warning=FALSE}
+d2[, do_impute := fifelse(is.na(eot.m.e) | is.na(eot.sd.e), 1.0, 0.0)]
+
+# Impute mean and SD where missing for EOT:
+meta01 <- metacont(
+  # Experimental group:
+  n.e      = n.e, 
+  mean.e   = eot.m.e, 
+  sd.e     = eot.sd.e, 
+  median.e = eot.med.e, 
+  q1.e     = eot.q1.e, 
+  q3.e     = eot.q3.e,
+  min.e    = eot.min.e, 
+  max.e    = eot.max.e,
+  # Control group:
+  n.c      = n.c, 
+  mean.c   = eot.m.c, 
+  sd.c     = eot.sd.c, 
+  median.c = eot.med.c, 
+  q1.c     = eot.q1.c, 
+  q3.c     = eot.q3.c,
+  min.c    = eot.min.c, 
+  max.c    = eot.max.c,
+  # Others arguments:
+  studlab  = row_id,
+  data     = d2,  
+  sm       = "SMD") 
+
+## Extract data on EOT:
+d2b <- with(meta01, data.table(studlab, n.e, mean.e, sd.e, 
+                               n.c, mean.c, sd.c))
+# Rename variables to align with previous naming standard:
+setnames(d2b, function(z) fifelse(grepl("^mean|^sd", z), paste0("eot.", z), z))
+setnames(d2b, function(z) gsub("mean", "m", z, fixed = TRUE))
+
+# Impute mean and SD where missing for Baseline:
+meta01 <- metacont(
+  # Experimental group:
+  n.e      = n.e, 
+  mean.e   = b.m.e, 
+  sd.e     = b.sd.e, 
+  median.e = b.med.e, 
+  q1.e     = b.q1.e, 
+  q3.e     = b.q3.e,
+  min.e    = b.min.e, 
+  max.e    = b.max.e,
+  # Control group:
+  n.c      = n.c, 
+  mean.c   = b.m.c, 
+  sd.c     = b.sd.c, 
+  median.c = b.med.c, 
+  q1.c     = b.q1.c, 
+  q3.c     = b.q3.c,
+  min.c    = b.min.c, 
+  max.c    = b.max.c,
+  # Others arguments:
+  studlab  = row_id,
+  data     = d2,
+  sm       = "SMD") 
+
+## Extract data on Baseline:
+d2c <- with(meta01, data.table(studlab, n.e, mean.e, sd.e, 
+                               n.c, mean.c, sd.c))
+# Rename variables to align with previous naming standard:
+setnames(d2c, function(z) fifelse(grepl("^mean|^sd", z), paste0("b.", z), z))
+setnames(d2c, function(z) gsub("mean", "m", z, fixed = TRUE))
+```
+
+Merge imputed data into a completed dataset:
+```{r}
+## Merge data on EOT and Baseline:
+stopifnot(nrow(d2) == nrow(d2b),
+          nrow(d2) == nrow(d2c))
+d2d <- merge(d2b, d2c[, -c("n.c", "n.e")], by="studlab", sort = FALSE)
+stopifnot(length(grep("\\.x$|\\.y$", names(d2d))) == 0)
+
+## Merge non-numeric columns with data-columns:
+nm2 <- names(d2)
+data_cols <- nm2[grep("\\.e$|\\.c$", nm2)]
+d3 <- merge(d2[, -data_cols, with=FALSE], d2d,
+            by.x="row_id", by.y="studlab", sort = FALSE)
+stopifnot(length(grep("\\.x$|\\.y$", names(d3))) == 0,
+          nrow(d2) == nrow(d3))
+```
+
+## Save data to disk
+
+Datasets:
+
+- `d`:  Validated source data before conversion of SE or CI to SD.
+- `d2`:  Data after deriving missing SE values from confidence intervals and converting available SE values to SD.
+- `d3`: Final analytic dataset after imputation of missing means and SDs from percentile data where possible.
+
+
+Save validated and processed datasets:
+```{r}
+saveRDS(d, "data_derived/pico2_1.rds")
+saveRDS(d2, "data_derived/pico2_2.rds")
+saveRDS(d3, "data_derived/pico2_3.rds")
+```
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+

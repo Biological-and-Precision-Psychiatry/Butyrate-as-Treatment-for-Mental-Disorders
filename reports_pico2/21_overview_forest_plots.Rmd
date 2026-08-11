@@ -1,0 +1,169 @@
+---
+title: "PICO 2: Overview Forest Plots for Meta Analysis"
+author: "Rune Haubo B Christensen & Sabine Færge"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+Load packages:
+```{r, warning=FALSE, message=FALSE}
+library(meta)
+library(grid)
+library(ggplot2)
+library(data.table)
+```
+
+Read functions: 
+```{r, include_functions}
+source("functions/meta_analysis_functions.R")
+source("functions/misc_functions.R")
+source("functions/format_functions.R")
+```
+
+
+## Read data
+
+```{r}
+d <- readRDS("data_derived/pico2_1.rds")
+d3 <- readRDS("data_derived/pico2_3.rds")
+```
+
+```{r plot_function}
+mk_plot <- function(meta_obj) {
+  forest(
+    meta_obj,
+    digits.sd = 2,
+    digits.mean = 2,
+    xlim = c(-2, 2),
+    print.subgroup.name = FALSE,
+    overall = FALSE,
+    overall.hetstat = FALSE,
+    common = FALSE,
+    random = FALSE,
+    resid.hetstat = FALSE,
+    test.overall.common = FALSE,
+    test.overall.random = FALSE,
+    test.subgroup = FALSE,
+    test.effect.subgroup.fixed = FALSE,
+    test.effect.subgroup.random = FALSE
+  )
+
+  invisible(NULL)
+}
+```
+
+
+## Validated source data - EOT
+
+```{r, results='hide', warning=FALSE}
+meta01 <- metacont(n.e    = n.e, 
+                   mean.e = eot.m.e, 
+                   sd.e   = eot.sd.e, 
+                   n.c    = n.c, 
+                   mean.c = eot.m.c, 
+                   sd.c   = eot.sd.c, 
+                   studlab=paste0(author, " ", year, ", ", outcome), 
+                   subgroup = outcome.cat,
+                   data=d,
+                   sm="SMD") 
+```
+
+Display validated source data before conversion of SE or CI to SD and before imputation of mean or SD:
+
+```{r ow_forestplot01_eot, fig.width=12, fig.height=35}
+mk_plot(meta01)
+```
+
+
+## Display imputed data - EOT
+
+Display the final analytic data after conversion of available SE and CI information to SD and imputation of missing means and SDs where possible:
+
+```{r, warning=FALSE}
+meta01 <- metacont(n.e    = n.e, 
+                   mean.e = eot.m.e, 
+                   sd.e   = eot.sd.e, 
+                   n.c    = n.c, 
+                   mean.c = eot.m.c, 
+                   sd.c   = eot.sd.c, 
+                   studlab=paste0(author, " ", year, ", ", outcome), 
+                   subgroup = outcome.cat,
+                   data=d3,
+                   sm="SMD") 
+```
+
+```{r ow_forestplot02_eot, fig.width=12, fig.height=40}
+mk_plot(meta01)
+```
+
+
+## Validated source data - Baseline
+
+```{r, results='hide', warning=FALSE}
+meta01 <- metacont(n.e    = n.e, 
+                   mean.e = b.m.e, 
+                   sd.e   = b.sd.e, 
+                   n.c    = n.c, 
+                   mean.c = b.m.c, 
+                   sd.c   = b.sd.c, 
+                   studlab=paste0(author, " ", year, ", ", outcome), 
+                   subgroup = outcome.cat,
+                   data=d,
+                   sm="SMD") 
+```
+
+Display all original data after conversion of SEM to SD but before imputation of mean or SD:
+
+```{r ow_forestplot01_b, fig.width=12, fig.height=33}
+mk_plot(meta01)
+```
+
+
+## Display imputed data - Baseline
+
+Display data after imputation of mean and SD:
+
+```{r, warning=FALSE}
+meta01 <- metacont(n.e    = n.e, 
+                   mean.e = b.m.e, 
+                   sd.e   = b.sd.e, 
+                   n.c    = n.c, 
+                   mean.c = b.m.c, 
+                   sd.c   = b.sd.c, 
+                   studlab=paste0(author, " ", year, ", ", outcome), 
+                   subgroup = outcome.cat,
+                   data=d3,
+                   sm="SMD") 
+```
+
+```{r ow_forestplot02_b, fig.width=12, fig.height=40}
+mk_plot(meta01)
+```
+
+
+## Appendix
+
+**R** session info:
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
