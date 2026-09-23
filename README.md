@@ -16,7 +16,7 @@ Code and data for the systematic review and meta-analysis:
 - [Gitta Wörtwein](https://researchprofiles.ku.dk/en/persons/gitta-w%C3%B6rtwein/)
 - [Michael E. Benros](https://researchprofiles.ku.dk/da/persons/jrd819-jrd819/)
 
-A scientific paper based on this work is under review at [Biological Psychiatry](https://www.biologicalpsychiatryjournal.com/).
+A scientific paper based on this work is under review at [Brain, Behavior, and Immunity](https://www.sciencedirect.com/journal/brain-behavior-and-immunity).
 
 ---
 
